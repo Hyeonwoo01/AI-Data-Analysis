@@ -1,0 +1,200 @@
+-- =====================================================================
+-- 과제 — BEAN ROUTE 카페 POS 데이터 구축
+-- 실행: mysql -u root -p < cafe_db_setup.sql
+-- 소요: 1~3분 (주문 약 12만 건 / 상세 약 28만 건)
+-- 저사양 PC: 아래 [0] 의 ORDER_ROWS 를 30000 으로 낮추세요
+-- =====================================================================
+
+CREATE DATABASE IF NOT EXISTS cafe_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON cafe_db.* TO 'analyst'@'localhost';
+FLUSH PRIVILEGES;
+
+USE cafe_db;
+
+SET SESSION sql_mode = '';
+SET SESSION foreign_key_checks = 0;
+
+DROP TABLE IF EXISTS tb_order_item, tb_order, tb_staff, tb_menu,
+                     tb_menu_category, tb_store, tb_city;
+
+-- ---------------------------------------------------------------------
+-- [1] 마스터
+-- ---------------------------------------------------------------------
+CREATE TABLE tb_city (
+    city_id  INT         NOT NULL,
+    city_nm  VARCHAR(30) NOT NULL,
+    region   VARCHAR(20) NOT NULL,   -- 수도권 / 영남 / 충청 / 호남
+    PRIMARY KEY (city_id),
+    UNIQUE KEY uix_city_nm (city_nm)
+) ENGINE=InnoDB COMMENT='도시 코드';
+
+INSERT INTO tb_city VALUES
+(1,'서울','수도권'), (2,'성남','수도권'), (3,'인천','수도권'), (4,'수원','수도권'),
+(5,'부산','영남'),   (6,'대전','충청'),   (7,'광주','호남');
+
+CREATE TABLE tb_store (
+    store_id   INT          NOT NULL,
+    store_nm   VARCHAR(50)  NOT NULL,
+    city_id    INT          NOT NULL,
+    opened_dt  DATE         NOT NULL,
+    seat_cnt   SMALLINT     NOT NULL,
+    PRIMARY KEY (store_id),
+    FOREIGN KEY (city_id) REFERENCES tb_city(city_id)
+) ENGINE=InnoDB COMMENT='매장';
+
+INSERT INTO tb_store VALUES
+(1,'강남역점',    1,'2019-03-15',72),
+(2,'홍대입구점',  1,'2020-07-01',48),
+(3,'판교테크노점',2,'2021-05-20',90),
+(4,'해운대점',    5,'2020-11-10',56),
+(5,'대전둔산점',  6,'2022-02-14',40),
+(6,'광주충장로점',7,'2022-09-05',36),
+(7,'수원영통점',  4,'2023-04-18',64),
+(8,'인천송도점',  3,'2023-08-22',80);
+
+CREATE TABLE tb_menu_category (
+    category_id  INT         NOT NULL,
+    category_nm  VARCHAR(30) NOT NULL,
+    PRIMARY KEY (category_id)
+) ENGINE=InnoDB COMMENT='메뉴 분류';
+
+INSERT INTO tb_menu_category VALUES
+(1,'커피'),(2,'논커피'),(3,'티'),(4,'디저트'),(5,'푸드');
+
+CREATE TABLE tb_menu (
+    menu_id     INT           NOT NULL,
+    menu_nm     VARCHAR(50)   NOT NULL,
+    category_id INT           NOT NULL,
+    price       DECIMAL(10,2) NOT NULL,
+    is_seasonal TINYINT       NOT NULL DEFAULT 0,
+    PRIMARY KEY (menu_id),
+    FOREIGN KEY (category_id) REFERENCES tb_menu_category(category_id)
+) ENGINE=InnoDB COMMENT='메뉴';
+
+INSERT INTO tb_menu VALUES
+(1,'아메리카노 HOT',1,4000,0),   (2,'아메리카노 아이스',1,4500,0),
+(3,'카페라떼 HOT',1,5000,0),      (4,'카페라떼 아이스',1,5500,0),
+(5,'카푸치노',1,5000,0),          (6,'바닐라라떼 아이스',1,5800,0),
+(7,'카라멜마키아토',1,6000,0),    (8,'콜드브루 아이스',1,5500,0),
+(9,'에스프레소',1,3500,0),        (10,'플랫화이트',1,5500,0),
+(11,'초코라떼 HOT',2,5500,0),     (12,'초코라떼 아이스',2,5800,0),
+(13,'딸기라떼 아이스',2,6200,1),  (14,'말차라떼 아이스',2,6000,0),
+(15,'고구마라떼 HOT',2,5800,1),   (16,'레몬에이드 아이스',2,5500,0),
+(17,'자몽에이드 아이스',2,5800,0),(18,'수박주스 아이스',2,6500,1),
+(19,'얼그레이 HOT',3,4500,0),     (20,'페퍼민트 HOT',3,4500,0),
+(21,'캐모마일 HOT',3,4500,0),     (22,'아이스티 아이스',3,4800,0),
+(23,'유자차 HOT',3,5000,1),       (24,'치즈케이크',4,6500,0),
+(25,'초코브라우니',4,5500,0),     (26,'마카롱 3종',4,7500,0),
+(27,'크로플',4,6800,0),           (28,'딸기생크림케이크',4,7800,1),
+(29,'햄치즈 샌드위치',5,6500,0),  (30,'베이글 크림치즈',5,5500,0),
+(31,'치아바타 샌드위치',5,7500,0),(32,'요거트볼',5,6800,1);
+
+CREATE TABLE tb_staff (
+    staff_id INT         NOT NULL,
+    store_id INT         NOT NULL,
+    staff_nm VARCHAR(30) NOT NULL,
+    role     VARCHAR(20) NOT NULL,   -- MANAGER / BARISTA / PART
+    hired_dt DATE        NOT NULL,
+    PRIMARY KEY (staff_id),
+    FOREIGN KEY (store_id) REFERENCES tb_store(store_id)
+) ENGINE=InnoDB COMMENT='직원';
+
+INSERT INTO tb_staff (staff_id, store_id, staff_nm, role, hired_dt)
+SELECT seq,
+       1 + (seq - 1) DIV 6,
+       CONCAT('직원', LPAD(seq, 3, '0')),
+       ELT(1 + (seq % 6), 'MANAGER','BARISTA','BARISTA','PART','PART','PART'),
+       DATE_ADD('2022-01-01', INTERVAL (seq * 17 % 900) DAY)
+FROM seq_1_to_48;
+
+-- ---------------------------------------------------------------------
+-- [2] 주문
+--     시간대 가중: 08~10시 출근 피크, 12~14시 점심, 15~17시 오후
+--     매장 규모(좌석)에 비례해 주문량 배분
+-- ---------------------------------------------------------------------
+CREATE TABLE tb_order (
+    order_id   INT         NOT NULL,
+    store_id   INT         NOT NULL,
+    staff_id   INT         NOT NULL,
+    order_dt   DATETIME    NOT NULL,
+    order_type VARCHAR(10) NOT NULL,   -- HALL / TAKEOUT / DELIVERY
+    pay_method VARCHAR(10) NOT NULL,   -- CARD / CASH / PAY
+    PRIMARY KEY (order_id),
+    FOREIGN KEY (store_id) REFERENCES tb_store(store_id),
+    FOREIGN KEY (staff_id) REFERENCES tb_staff(staff_id)
+) ENGINE=InnoDB COMMENT='주문';
+
+-- [0] 규모 조절: 저사양 PC 는 seq_1_to_120000 → seq_1_to_30000
+INSERT INTO tb_order (order_id, store_id, staff_id, order_dt, order_type, pay_method)
+SELECT seq,
+       st.store_id,
+       1 + (st.store_id - 1) * 6 + (seq % 6),
+       DATE_ADD(
+         DATE_ADD(GREATEST(st.opened_dt, '2023-01-01'),
+                  INTERVAL (seq * 31 % GREATEST(DATEDIFF('2024-12-31', GREATEST(st.opened_dt,'2023-01-01')), 1)) DAY),
+         INTERVAL (ELT(1 + (seq % 20),
+                        7, 8, 8, 9, 9, 9, 10, 10, 11, 12,
+                       12, 13, 13, 14, 15, 16, 16, 17, 18, 19) * 60
+                   + (seq * 7 % 60)) MINUTE),
+       ELT(1 + (seq % 10), 'HALL','HALL','HALL','HALL','TAKEOUT',
+                           'TAKEOUT','TAKEOUT','TAKEOUT','DELIVERY','DELIVERY'),
+       ELT(1 + (seq % 8), 'CARD','CARD','CARD','CARD','CARD','PAY','PAY','CASH')
+FROM seq_1_to_120000 s
+JOIN tb_store st ON st.store_id = 1 + (s.seq * 13 % 8);
+
+CREATE TABLE tb_order_item (
+    order_item_id INT           NOT NULL AUTO_INCREMENT,
+    order_id      INT           NOT NULL,
+    menu_id       INT           NOT NULL,
+    qty           SMALLINT      NOT NULL,
+    unit_price    DECIMAL(10,2) NOT NULL,
+    PRIMARY KEY (order_item_id),
+    KEY idx_oi_order (order_id),
+    FOREIGN KEY (order_id) REFERENCES tb_order(order_id),
+    FOREIGN KEY (menu_id)  REFERENCES tb_menu(menu_id)
+) ENGINE=InnoDB COMMENT='주문 상세';
+
+INSERT INTO tb_order_item (order_id, menu_id, qty, unit_price)
+SELECT o.order_id, m.menu_id, 1 + (o.order_id % 2), m.price
+FROM tb_order o
+JOIN tb_menu m ON m.menu_id = ELT(1 + (o.order_id % 23), 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23);
+
+INSERT INTO tb_order_item (order_id, menu_id, qty, unit_price)
+SELECT o.order_id, m.menu_id, 1, m.price
+FROM tb_order o
+JOIN tb_menu m ON m.menu_id = ELT(1 + (o.order_id % 9), 24,25,26,27,28,29,30,31,32)
+WHERE o.order_id % 2 = 0;          -- 절반의 주문에 디저트·푸드 한 줄 추가
+
+INSERT INTO tb_order_item (order_id, menu_id, qty, unit_price)
+SELECT o.order_id, m.menu_id, 1, m.price
+FROM tb_order o
+JOIN tb_menu m ON m.menu_id = ELT(1 + (o.order_id % 5), 2,4,24,25,29)
+WHERE o.order_id % 5 = 0;          -- 20% 는 세 줄
+
+SET SESSION foreign_key_checks = 1;
+
+-- ---------------------------------------------------------------------
+-- [3] 통계 갱신 & 확인
+-- ---------------------------------------------------------------------
+ANALYZE TABLE tb_order, tb_order_item;
+
+SELECT 'tb_city'          AS tbl, COUNT(*) AS cnt FROM tb_city
+UNION ALL SELECT 'tb_store',         COUNT(*) FROM tb_store
+UNION ALL SELECT 'tb_menu_category', COUNT(*) FROM tb_menu_category
+UNION ALL SELECT 'tb_menu',          COUNT(*) FROM tb_menu
+UNION ALL SELECT 'tb_staff',         COUNT(*) FROM tb_staff
+UNION ALL SELECT 'tb_order',         COUNT(*) FROM tb_order
+UNION ALL SELECT 'tb_order_item',    COUNT(*) FROM tb_order_item;
+
+-- 데이터 확인
+SELECT st.store_nm,
+       COUNT(DISTINCT o.order_id)             AS 주문건수,
+       SUM(i.qty * i.unit_price)              AS 매출,
+       ROUND(SUM(i.qty * i.unit_price)
+             / COUNT(DISTINCT o.order_id))    AS 객단가
+FROM tb_order o
+JOIN tb_order_item i ON o.order_id = i.order_id
+JOIN tb_store st     ON o.store_id = st.store_id
+GROUP BY st.store_nm
+ORDER BY 매출 DESC;
+
