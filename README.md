@@ -1,2 +1,13 @@
-# AI- DATA ANALYSIS
-Practicing coding for Data Analysis
+# 데이터 출처·기준일자·라이선스
+
+소상공인시장진흥공단_상가(상권)정보:
+    제공기관: 소상공인시장진흥공단
+    기준 시점: 2026.06.30
+    출처: https://www.data.go.kr/data/15083033/fileData.do 
+    
+
+
+행정안전부_지역별(행정동) 성별 연령별 주민등록 인구수:
+    제공기관: 행정안전부
+    기준 시점: 2026.06.30
+    출처: https://www.data.go.kr/data/15097972/fileData.do
