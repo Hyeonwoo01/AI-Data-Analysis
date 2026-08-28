@@ -1,33 +1,41 @@
-DROP TABLE IF EXISTS store_sales;
-DROP TABLE IF EXISTS population;
+CREATE TABLE IF NOT EXISTS tb_nf_stock (
+    bas_dt DATE NOT NULL, 
+    srtn_cd CHAR(6) NOT NULL, 
+    itms_nm VARCHAR(100), 
+    clpr BIGINT, vs BIGINT, mkp BIGINT, hipr BIGINT, lopr BIGINT, trqu BIGINT, raw_id BIGINT,
+    PRIMARY KEY (bas_dt, srtn_cd)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE store_sales (
-    store_id VARCHAR(50) PRIMARY KEY,
-    store_name VARCHAR(255),
-    category_large_code VARCHAR(20),  
-    category_large VARCHAR(100),
-    category_mid_code VARCHAR(20),    
-    category_mid VARCHAR(100),
-    sigungu VARCHAR(50),
-    region_code VARCHAR(50),
-    region_name VARCHAR(50),
-    lon DOUBLE,
-    lat DOUBLE
-);
+CREATE TABLE IF NOT EXISTS tb_fsc_stock (
+    bas_dt DATE NOT NULL, 
+    srtn_cd CHAR(6) NOT NULL, 
+    itms_nm VARCHAR(100), 
+    clpr BIGINT, vs BIGINT, mkp BIGINT, hipr BIGINT, lopr BIGINT, trqu BIGINT, raw_id BIGINT,
+    PRIMARY KEY (bas_dt, srtn_cd)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX idx_store_sigungu ON store_sales(sigungu);
-CREATE INDEX idx_store_category ON store_sales(category_mid_code);
+CREATE TABLE IF NOT EXISTS tb_mart_stock_monthly (
+    srtn_cd     CHAR(6)     NOT NULL,
+    ym          CHAR(7)     NOT NULL,
+    trd_days    INT,
+    open_clpr   BIGINT,
+    close_clpr  BIGINT,
+    avg_clpr    BIGINT,
+    max_clpr    BIGINT,
+    min_clpr    BIGINT,
+    sum_trqu    BIGINT,
+    avg_trqu    BIGINT,
+    PRIMARY KEY (srtn_cd, ym)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE population (
-    sigungu VARCHAR(50) PRIMARY KEY,
-    total_pop INT,
-    pop_0s INT,
-    pop_10s INT,
-    pop_20s INT,
-    pop_30s INT,
-    pop_40s INT,
-    pop_50s INT,
-    pop_60s INT,
-    pop_70s INT,
-    pop_65plus INT
-);
+CREATE TABLE IF NOT EXISTS tb_mart_stock_daily (
+    bas_dt     DATE        NOT NULL,
+    srtn_cd    CHAR(6)     NOT NULL,
+    clpr       BIGINT,
+    trqu       BIGINT,
+    chg_pct    DOUBLE,
+    ma5        DOUBLE,
+    ma20       DOUBLE,
+    vol_ratio  DOUBLE,
+    PRIMARY KEY (bas_dt, srtn_cd)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
